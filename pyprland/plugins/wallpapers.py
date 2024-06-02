@@ -30,6 +30,8 @@ async def get_files_with_ext(path: str, extensions: list[str], recurse: bool = T
 class Extension(CastBoolMixin, Plugin):
     """Manages the background image."""
 
+    requires = ["hyprland"]
+
     default_image_ext: set[str] | list[str] = {"png", "jpg", "jpeg"}
     image_list: list[str] = []
     running = True

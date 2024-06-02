@@ -1,4 +1,4 @@
-"""Not a real Plugin - provides some core features and some caching of commonly requested structures."""
+"""Not a real Plugin - provides some core hyprland states and support."""
 
 import json
 
@@ -7,8 +7,6 @@ from ..types import VersionInfo
 from .interface import Plugin
 
 DEFAULT_VERSION = VersionInfo(9, 9, 9)
-
-# TODO: move the hyprland part to a hyprland plugin, only keep the on_reload state handling
 
 
 class Extension(Plugin):
@@ -63,13 +61,6 @@ class Extension(Plugin):
         """Track monitor."""
         state.monitors.remove(name)
 
-    async def on_reload(self) -> None:
-        """Reload the plugin."""
-        state.variables = self.config.get("variables", {})
-        version_override = self.config.get("hyprland_version")
-        if version_override:
-            self.__set_hyprland_version(version_override)
-
     async def event_activewindowv2(self, addr: str) -> None:
         """Keep track of the focused client."""
         if not addr:
@@ -88,15 +79,3 @@ class Extension(Plugin):
         """Track the active workspace."""
         state.active_monitor, state.active_workspace = mon.rsplit(",", 1)
         self.log.debug("active_monitor = %s", state.active_monitor)
-
-    def set_commands(self, **cmd_map) -> None:
-        """Set some commands, made available as run_`name` methods."""
-        for name, fn in cmd_map.items():
-            setattr(self, f"run_{name}", fn)
-
-    def __set_hyprland_version(self, version_str: str, auto_increment: bool = False) -> None:
-        """Set the hyprland version."""
-        split_version = [int(i) for i in version_str.split(".")[:3]]
-        if auto_increment:
-            split_version[-1] += 1
-        state.hyprland_version = VersionInfo(*split_version)

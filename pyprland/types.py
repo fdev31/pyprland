@@ -1,5 +1,7 @@
 """Common types from Hyprland API."""
 
+import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import Enum
 from typing import TypedDict
@@ -13,6 +15,20 @@ class RetensionTimes(float, Enum):
 
     SHORT: float = 0.005
     LONG: float = 0.05
+
+
+@dataclass
+class IOProvider:
+    """Provider's IO functions."""
+
+    notify: Callable[[str], Awaitable[None]]
+    notify_error: Callable[[str], Awaitable[None]]
+    notify_fatal: Callable[[str], Awaitable[None]]
+    notify_info: Callable[[str], Awaitable[None]]
+    get_event_stream: Callable[[], Awaitable[tuple[asyncio.StreamReader, asyncio.StreamWriter]]]
+    init: Callable[[], None]
+    send_command: Callable[[str], Awaitable]
+    get_info: Callable[[str], Awaitable]
 
 
 class WorkspaceDf(TypedDict):

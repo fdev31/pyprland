@@ -251,12 +251,11 @@ def init() -> None:
     log = get_logger("ipc")
 
 
-def get_controls(logger: Logger) -> tuple[Callable, Callable, Callable, Callable, Callable]:
-    """Return (hyprctl, hyprctl_json, notify) configured for the given logger."""
-    return (
-        partial(hyprctl, logger=logger),
-        partial(hyprctl_json, logger=logger),
-        partial(notify, logger=logger),
-        partial(notify_info, logger=logger),
-        partial(notify_error, logger=logger),
-    )
+def get_controls() -> dict[str, Callable]:
+    return {
+        "notify": notify,
+        "notify_error": notify_error,
+        "notify_info": notify_info,
+        "notify_fatal": notify_fatal,
+        "get_event_stream": get_event_stream,
+    }

@@ -7,18 +7,17 @@ import json
 import os
 import sys
 import tomllib
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from functools import partial
 from typing import Any, Self, cast
 
-from pyprland.common import IPC_FOLDER, get_logger, init_logger, merge, run_interactive_program
-from pyprland.ipc import get_event_stream, notify_error, notify_fatal, notify_info
-from pyprland.ipc import init as ipc_init
+from pyprland.common import get_logger, init_logger, merge, run_interactive_program
 from pyprland.plugins.interface import Plugin
-from pyprland.types import PyprError
+from pyprland.providers import get_providers
+from pyprland.types import IOProvider, PyprError
 from pyprland.version import VERSION
 
-CONTROL = f"{IPC_FOLDER}/.pyprland.sock"
+CONTROL = f"{os.environ['XDG_RUNTIME_DIR']}/.pyprland.sock"
 OLD_CONFIG_FILE = "~/.config/hypr/pyprland.json"
 CONFIG_FILE = "~/.config/hypr/pyprland.toml"
 
@@ -31,13 +30,19 @@ class Pyprland:
     """Main app object."""
 
     server: asyncio.Server
-    event_reader: asyncio.StreamReader
+    providers: dict[str, IOProvider] = {}
+    events_readers: list[asyncio.StreamReader]
     stopped = False
     config: dict[str, dict] = {}
     tasks: list[asyncio.Task] = []
     tasks_group: None | asyncio.TaskGroup = None
     instance: Self | None = None
     log_handler: Callable[[Plugin, str, tuple], None]
+
+    @property
+    def first_provider(self) -> IOProvider:
+        """Return the first provider."""
+        return list(self.providers.values())[0]
 
     @classmethod
     def _set_instance(cls, instance: Self) -> None:
@@ -53,8 +58,10 @@ class Pyprland:
         self.queues: dict[str, asyncio.Queue] = {}
         self._set_instance(self)
 
-    async def initialize(self) -> None:
+    async def initialize(self, readers: list[asyncio.StreamReader], providers: dict[str, IOProvider]) -> None:
         """Initialize the main structures."""
+        self.events_readers = readers
+        self.providers = providers
         await self.load_config()  # ensure sockets are connected first
 
     async def __open_config(self, config_filename: str = "") -> dict[str, Any]:
@@ -111,7 +118,11 @@ class Pyprland:
         else:
             modname = f"pyprland.plugins.{name}"
         try:
-            plug = importlib.import_module(modname).Extension(name)
+            ext = importlib.import_module(modname).Extension
+            try:
+                plug = ext(name, self.providers[ext.requires[0]] if ext.requires else self.first_provider)
+            except KeyError:
+                return False
             if init:
                 await plug.init()
                 self.queues[name] = asyncio.Queue()
@@ -120,10 +131,10 @@ class Pyprland:
             self.plugins[name] = plug
         except ModuleNotFoundError as e:
             self.log.exception("Unable to locate plugin called '%s'", name)
-            await notify_info(f'Config requires plugin "{name}" but pypr can\'t find it: {e}')
+            await self.first_provider.notify_info(f'Config requires plugin "{name}" but pypr can\'t find it: {e}')
             return False
         except Exception as e:
-            await notify_info(f"Error loading plugin {name}: {e}")
+            await self.first_provider.notify_info(f"Error loading plugin {name}: {e}")
             self.log.exception("Error loading plugin %s:", name)
             raise PyprError from e
         return True
@@ -147,12 +158,12 @@ class Pyprland:
                 except TimeoutError:
                     self.plugins[name].log.info("timed out on reload")
                 except Exception as e:
-                    await notify_info(f"Error initializing plugin {name}: {e}")
+                    await self.first_provider.notify_info(f"Error initializing plugin {name}: {e}")
                     self.log.exception("Error initializing plugin %s:", name)
                     raise PyprError from e
                 else:
                     self.plugins[name].log.info("configured")
-        if init_pyprland:
+        if init_pyprland and "pyprland" in self.providers:
             plug = self.plugins["pyprland"]
             plug.set_commands(reload=self.load_config)  # type: ignore
 
@@ -183,10 +194,10 @@ class Pyprland:
             await getattr(plugin, full_name)(*params)
         except AssertionError as e:
             self.log.exception("This could be a bug in Pyprland, if you think so, report on https://github.com/fdev31/pyprland/issues")
-            await notify_error(f"Pypr integrity check failed on {plugin.name}::{full_name}: {e}")
+            await self.first_provider.notify_error(f"Pypr integrity check failed on {plugin.name}::{full_name}: {e}")
         except Exception as e:  # pylint: disable=W0718
             self.log.exception("%s::%s(%s) failed:", plugin.name, full_name, params)
-            await notify_error(f"Pypr error {plugin.name}::{full_name}: {e}")
+            await self.first_provider.notify_error(f"Pypr error {plugin.name}::{full_name}: {e}")
 
     async def _call_handler(self, full_name: str, *params: str, notify: str = "") -> bool:
         """Call an event handler with params."""
@@ -200,14 +211,14 @@ class Pyprland:
                 elif not plugin.aborted:
                     await self.queues[plugin.name].put(task)
         if notify and not handled:
-            await notify_info(f'"{notify}" not found')
+            await self.first_provider.notify_info(f'"{notify}" not found')
         return handled
 
-    async def read_events_loop(self) -> None:
+    async def read_events_loop(self, reader: asyncio.StreamReader) -> None:
         """Consume the event loop and calls corresponding handlers."""
         while not self.stopped:
             try:
-                data = (await self.event_reader.readline()).decode()
+                data = (await reader.readline()).decode()
             except RuntimeError:
                 self.log.exception("Aborting event loop")
                 return
@@ -314,14 +325,14 @@ class Pyprland:
 
     async def run(self) -> None:
         """Run the server and the event listener."""
-        await asyncio.gather(
-            asyncio.create_task(self.serve()),
-            asyncio.create_task(self.read_events_loop()),
-            asyncio.create_task(self.plugins_runner()),
-        )
+        tasks = [asyncio.create_task(self.serve()), asyncio.create_task(self.plugins_runner())]
+        tasks.extend(asyncio.create_task(self.read_events_loop(r)) for r in self.events_readers)
+        await asyncio.gather(*tasks)
 
 
-async def get_event_stream_with_retry(max_retry: int = 10) -> tuple[asyncio.StreamReader, asyncio.StreamWriter] | tuple[None, Exception]:
+async def get_event_stream_with_retry(
+    getter: Callable[[], Awaitable[tuple[asyncio.StreamReader, asyncio.StreamWriter]]], max_retry: int = 10
+) -> tuple[asyncio.StreamReader, asyncio.StreamWriter] | tuple[None, Exception]:
     """Obtain the event stream, retrying if it fails.
 
     If retry count is exhausted, returns (None, exception).
@@ -330,7 +341,7 @@ async def get_event_stream_with_retry(max_retry: int = 10) -> tuple[asyncio.Stre
     while True:
         attempt = next(err_count)
         try:
-            return await get_event_stream()
+            return await getter()
         except Exception as e:  # pylint: disable=W0718
             if attempt > max_retry:
                 return None, e
@@ -342,15 +353,17 @@ async def run_daemon() -> None:
     manager = Pyprland()
     manager.server = await asyncio.start_unix_server(manager.read_command, CONTROL)
 
-    events_reader, events_writer = await get_event_stream_with_retry()
-    if events_reader is None:
-        manager.log.critical("Failed to open hyprland event stream: %s.", events_writer)
-        await notify_fatal("Failed to open hyprland event stream")
-        raise PyprError from cast(Exception, events_writer)
+    readers = []
+    providers = get_providers()
 
-    manager.event_reader = events_reader
+    for name, provider in providers.items():
+        if provider.get_event_stream:
+            events_reader, events_writer = await get_event_stream_with_retry(provider.get_event_stream)
+            if events_reader is not None:
+                manager.log.debug("Connected %s event source", name)
+                readers.append(events_reader)
 
-    await manager.initialize()
+    await manager.initialize(readers, providers)
 
     manager.log.debug("[ initialized ]".center(80, "="))
 
@@ -406,6 +419,7 @@ Available commands:
 async def run_client() -> None:
     """Run the client (CLI)."""
     manager = Pyprland()
+    manager.providers = get_providers()
 
     if sys.argv[1] == "version":
         print(VERSION)
@@ -431,7 +445,7 @@ async def run_client() -> None:
         _, writer = await asyncio.open_unix_connection(CONTROL)
     except (ConnectionRefusedError, FileNotFoundError) as e:
         manager.log.critical("Failed to open control socket, is pypr daemon running ?")
-        await notify_error("Pypr can't connect, is daemon running ?")
+        await manager.first_provider.notify_error("Pypr can't connect, is daemon running ?")
         raise PyprError from e
 
     args = sys.argv[1:]
@@ -462,7 +476,9 @@ def main() -> None:
         init_logger(filename=debug_flag, force_debug=True)
     else:
         init_logger()
-    ipc_init()
+    providers = get_providers()
+    for provided in providers.values():
+        provided.init()
     log = get_logger("startup")
 
     config_override = use_param("--config")
@@ -472,7 +488,8 @@ def main() -> None:
 
     invoke_daemon = len(sys.argv) <= 1
     if invoke_daemon and os.path.exists(CONTROL):
-        asyncio.run(notify_fatal("Trying to run pypr more than once ?"))
+        first_provider: IOProvider = list(providers.values())[0]
+        asyncio.run(first_provider.notify_fatal("Trying to run pypr more than once ?"))  # type: ignore
         log.critical(
             """%s exists,
 is pypr already running ?
@@ -482,9 +499,7 @@ If that's not the case, delete this file and run again.""",
     else:
         try:
             asyncio.run(run_daemon() if invoke_daemon else run_client())
-        except KeyboardInterrupt:
-            pass
-        except PyprError:
+        except (PyprError, KeyboardInterrupt):
             log.critical("Command failed.")
         except json.decoder.JSONDecodeError as e:
             log.critical("Invalid JSON syntax in the config file: %s", e.args[0])

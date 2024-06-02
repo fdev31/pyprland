@@ -10,6 +10,8 @@ class Extension(CastBoolMixin, Plugin):  # pylint: disable=missing-class-docstri
 
     exposed: list[ClientInfo] = []
 
+    requires = ["hyprland"]
+
     @property
     def exposed_clients(self) -> list[ClientInfo]:
         """Returns the list of clients currently using exposed mode."""

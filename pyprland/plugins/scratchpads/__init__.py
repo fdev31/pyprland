@@ -9,7 +9,7 @@ from typing import cast
 
 from ...adapters.units import convert_coords, convert_monitor_dimension
 from ...common import MINIMUM_ADDR_LEN, CastBoolMixin, apply_variables, is_rotated, state
-from ...ipc import get_client_props, get_focused_monitor_props, notify_error
+from ...hyprland_ipc import get_client_props, get_focused_monitor_props, notify_error
 from ...types import ClientInfo, MonitorInfo
 from ..interface import Plugin
 from .animations import AnimationTarget, Placement
@@ -55,8 +55,8 @@ class Extension(CastBoolMixin, Plugin):  # pylint: disable=missing-class-docstri
     previously_focused_window: str = ""
     last_focused: Scratch | None = None
 
-    def __init__(self, name: str) -> None:
-        super().__init__(name)
+    def __init__(self, *a, **kw) -> None:
+        super().__init__(*a, **kw)
         self._hysteresis_tasks = {}
         self.get_client_props = partial(get_client_props, logger=self.log)
         Scratch.get_client_props = self.get_client_props

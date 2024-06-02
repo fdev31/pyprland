@@ -99,6 +99,8 @@ def build_graph(config: dict[str, dict[str, list[str]]]) -> dict[str, list[str]]
 class Extension(CastBoolMixin, Plugin):  # pylint: disable=missing-class-docstring
     """Control monitors layout."""
 
+    requires = ["hyprland"]
+
     _mon_by_pat_cache: dict[str, MonitorInfo] = {}
 
     async def on_reload(self) -> None:

@@ -43,9 +43,9 @@ builtin_parsers = {
 class Extension(Plugin):
     """Notification system from live apps & logs."""
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, *a, **kw) -> None:
         """Initialize the class."""
-        super().__init__(name)
+        super().__init__(*a, **kw)
         self.tasks: list[asyncio.Task] = []
         self.sources: dict[str, Process] = {}
         self.parsers: dict[str, asyncio.Queue] = {}

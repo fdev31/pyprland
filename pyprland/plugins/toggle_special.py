@@ -9,6 +9,8 @@ from .interface import Plugin
 class Extension(Plugin):  # pylint: disable=missing-class-docstring
     """Toggle switching the focused window to a special workspace."""
 
+    requires = ["hyprland"]
+
     async def run_toggle_special(self, special_workspace: str = "minimized") -> None:
         """[name] Toggles switching the focused window to the special workspace "name" (default: minimized)."""
         aw = cast(dict, await self.hyprctl_json("activewindow"))

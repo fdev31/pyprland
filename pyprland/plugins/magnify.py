@@ -11,6 +11,8 @@ from .interface import Plugin
 class Extension(Plugin):
     """Control workspace zooming."""
 
+    requires = ["hyprland"]
+
     zoomed = False
 
     cur_factor = 1.0

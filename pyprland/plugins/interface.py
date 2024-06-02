@@ -2,17 +2,21 @@
 
 import contextlib
 from collections.abc import Callable
+from functools import partial
 from typing import Any, cast
 
 from ..common import get_logger
-from ..ipc import get_controls
-from ..types import ClientInfo
+from ..hyprland_ipc import get_controls
+from ..types import ClientInfo, IOProvider
 
 
 class Plugin:
     """Base class for any pyprland plugin."""
 
     aborted = False
+
+    requires: list[str] = []
+    " list if required providers"
 
     hyprctl_json: Callable
     " `pyprland.ipc.hyprctl_json` using the pluggin's logger "
@@ -32,20 +36,17 @@ class Plugin:
     config: dict[str, Any]
     " This plugin configuration section as a `dict` object "
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, controls: IOProvider) -> None:
         """Create a new plugin `name` and the matching logger."""
         self.name = name
         """ the plugin name """
         self.log = get_logger(name)
         """ the logger to use for this plugin """
-        ctrl = get_controls(self.log)
-        (
-            self.hyprctl,
-            self.hyprctl_json,  # pylint: disable=invalid-name
-            self.notify,
-            self.notify_info,
-            self.notify_error,
-        ) = ctrl
+        self.hyprctl = partial(controls.send_command, logger=self.log)
+        self.hyprctl_json = partial(controls.get_info, logger=self.log)
+        self.notify = partial(controls.notify, logger=self.log)
+        self.notify_info = partial(controls.notify_info, logger=self.log)
+        self.notify_error = partial(controls.notify_error, logger=self.log)
         self.config = {}
 
     # Functions to override

@@ -17,6 +17,8 @@ from .interface import Plugin
 class Extension(CastBoolMixin, Plugin):
     """Manages a layout with one centered window on top of others."""
 
+    requires = ["hyprland"]
+
     workspace_info: dict[str, dict[str, Any]] = defaultdict(lambda: {"enabled": False, "addr": ""})
     last_index = 0
 

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from ...aioops import aiexists, aiopen
 from ...common import CastBoolMixin, state
-from ...ipc import notify_error
+from ...hyprland_ipc import notify_error
 from ...types import ClientInfo, MonitorInfo, VersionInfo
 from .helpers import OverridableConfig, get_match_fn
 
