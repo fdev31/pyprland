@@ -154,9 +154,7 @@ class Pyprland:
         init_pyprland = "pyprland" not in self.plugins
 
         for name in ["pyprland", self.first_provider_name] + self.config["pyprland"]["plugins"]:
-            print(f"Loading {name}")
             if name not in self.plugins and not await self._load_single_plugin(name, init):
-                print("continue")
                 continue
             if init:
                 try:
