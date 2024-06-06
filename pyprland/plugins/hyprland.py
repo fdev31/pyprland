@@ -79,3 +79,16 @@ class Extension(Plugin):
         """Track the active workspace."""
         state.active_monitor, state.active_workspace = mon.rsplit(",", 1)
         self.log.debug("active_monitor = %s", state.active_monitor)
+
+    def __set_hyprland_version(self, version_str: str, auto_increment: bool = False) -> None:
+        """Set the hyprland version."""
+        split_version = [int(i) for i in version_str.split(".")[:3]]
+        if auto_increment:
+            split_version[-1] += 1
+        state.hyprland_version = VersionInfo(*split_version)
+
+    async def on_reload(self) -> None:
+        """Reload the plugin."""
+        version_override = self.config.get("hyprland_version")
+        if version_override:
+            self.__set_hyprland_version(version_override)

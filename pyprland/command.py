@@ -9,7 +9,7 @@ import sys
 import tomllib
 from collections.abc import Awaitable, Callable
 from functools import partial
-from typing import Any, Self, cast
+from typing import Any, Self
 
 from pyprland.common import get_logger, init_logger, merge, run_interactive_program
 from pyprland.plugins.interface import Plugin
@@ -43,6 +43,11 @@ class Pyprland:
     def first_provider(self) -> IOProvider:
         """Return the first provider."""
         return list(self.providers.values())[0]
+
+    @property
+    def first_provider_name(self) -> IOProvider:
+        """Return the first provider."""
+        return list(self.providers)[0]
 
     @classmethod
     def _set_instance(cls, instance: Self) -> None:
@@ -148,8 +153,10 @@ class Pyprland:
 
         init_pyprland = "pyprland" not in self.plugins
 
-        for name in ["pyprland"] + self.config["pyprland"]["plugins"]:
+        for name in ["pyprland", self.first_provider_name] + self.config["pyprland"]["plugins"]:
+            print(f"Loading {name}")
             if name not in self.plugins and not await self._load_single_plugin(name, init):
+                print("continue")
                 continue
             if init:
                 try:
